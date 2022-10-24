@@ -1,0 +1,79 @@
+// Global Surface Water 
+var GSW = ee.Image('JRC/GSW1_2/GlobalSurfaceWater');
+//Map.addLayer(GSW, visualization, 'Occurrence', false);
+
+// Landsat 8 scaling factors
+// Applies scaling factors.
+function applyScaleFactors(image) {
+  var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+  var thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0);
+  return image.addBands(opticalBands, null, true)
+              .addBands(thermalBands, null, true);
+}
+
+// GSW water mask to mask false positives
+function watermask(image) {
+ var GSWmask = GSW.select('occurrence')
+  return image.updateMask(GSWmask);
+}
+
+// dynamic NDWI water mask
+function waterNDWImask(image) {
+  var ndwimask = image.select('NDWI').gte(0)
+  return image.updateMask(ndwimask);
+ }
+
+// calculate secchi depth from NDTI
+// Lacaux, et al, 2007, https://doi.org/10.1016/j.rse.2006.07.012
+var Secchi = function(image) {
+//  return image.addBands(image.expression("(((b4 - b3) / (b4 + b3))+1)/(0.613+1)", {
+return image.addBands(image.expression('pow(10, ((((b4 - b3) / (b4 + b3))+1)/(0.613+1) * -1.28642 + 1.175)) - 1', {
+    b4: image.select("SR_B4"),
+    b3: image.select("SR_B3")}).rename("secchi"));
+};
+
+
+var NDWI = function(img) {
+  var ndwi = img.normalizedDifference(['SR_B3','SR_B5']).rename('NDWI');
+  
+  return img
+    .addBands(ndwi);
+};
+
+
+// import Landsat 8 image collection                  
+var L8_SR_img = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+                  .filterDate('2022-06-01', '2022-10-01')
+                  .filterBounds(AOI)
+                  .filter(ee.Filter.eq('CLOUD_COVER', 0))
+                  .map(applyScaleFactors);
+
+var L8_SR = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+                  .filterDate('2022-06-01', '2022-10-01')
+                  .filterBounds(AOI)
+//                  .filter(ee.Filter.lt('CLOUD_COVER', 10))
+                  .filter(ee.Filter.eq('CLOUD_COVER', 0))
+                  .map(applyScaleFactors)
+                  .map(Secchi)
+                  .map(NDWI)
+                  .map(waterNDWImask)
+                  .map(watermask);
+
+
+//// SELECT AND PRINT FIRST IMAGE IN COLLECTION 
+ var First_S2 = L8_SR.limit(1, 'system:time_start').first();
+ print (First_S2, 'Latest true color mosaic')
+ 
+ var First_L8_img = L8_SR_img.limit(1, 'system:time_start').first();
+ 
+ // Select Secchi depth band in first image
+ var depthCollection = First_S2.select('secchi');
+ 
+ // visualization
+ var L8_NDTIvis = {bands:['secchi'], min:0, max:4, palette:['red', 'brown', 'tan','DeepSkyBlue', 'darkblue']};
+ var L8_vis = {bands:['SR_B4','SR_B3','SR_B2'], min:0, max:0.4};
+ 
+ // add map
+ Map.addLayer(First_L8_img, L8_vis  , 'L8_SR_RGB');
+ Map.addLayer(depthCollection, L8_NDTIvis  , 'Secci depth'); 
+ 

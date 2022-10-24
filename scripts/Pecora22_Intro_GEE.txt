@@ -1,0 +1,96 @@
+//// Intro to Earth Engine
+/*Adopted from users/gorelick/EE101-B, and 
+https://developers.google.com/earth-engine/guides/getstarted
+*/
+
+// All the javascript you need to know (almost)
+
+var variable = 1;
+
+var string = 'Hello, World!';
+
+var list = [1.23, 8, -3];
+print(list[2]);
+
+var dictionary = {
+  a: 'Hello',
+  b: 10,
+  c: 0.1343,
+  d: list
+};
+
+print(dictionary.b);
+print(variable, string, list, dictionary);
+
+// One image
+
+print(ee.Image('LANDSAT/LC08/C01/T1/LC08_033032_20140812'));
+
+// Load an image.
+var image = ee.Image('LANDSAT/LC08/C01/T1/LC08_033032_20140812');
+
+// Center the map on the image.
+Map.centerObject(image, 9);
+
+// Display the image.
+Map.addLayer(image);
+
+// Define visualization parameters in an object literal.
+var vizParams = {bands: ['B5', 'B4', 'B3'], min: 5000, max: 15000, gamma: 1.3};
+
+// Center the map on the image and display.
+Map.centerObject(image, 9);
+Map.addLayer(image, vizParams, 'Landsat 8 false color');
+
+// Add an image collection
+var collection = ee.ImageCollection('LANDSAT/LC08/C01/T1');
+
+// Add a start and end date
+var start = ee.Date('2014-01-01');
+var finish = ee.Date('2014-12-01');
+
+// Filter the image collection
+var filteredCollection = ee.ImageCollection('LANDSAT/LC08/C01/T1')
+  .filterBounds(geometry)
+  .filterDate(start, finish)
+  .sort('CLOUD_COVER', true);
+
+print(filteredCollection);
+
+// Band math (NDVI)
+var composite = filteredCollection.median();
+
+// Method 1)
+var b5 = composite.select("B5");
+var b4 = composite.select("B4");
+var ndvi_1 = b5.subtract(b4).divide(b5.add(b4));
+
+// Method 2)
+var ndvi_2 = composite.normalizedDifference(["B5", "B4"]);
+
+// Method 3)
+var ndvi_3 = composite.expression("(b5 - b4) / (b5 + b4)", {
+    b5: composite.select("B5"),
+    b4: composite.select("B4")
+});
+
+Map.addLayer(composite, vizParams, 'Landsat8 Composite');
+Map.addLayer(ndvi_1, {min:0, max:1} , "NDVI");
+
+// Mapping
+
+// This function gets NDVI from Landsat 8 imagery.
+var addNDVI = function(image) {
+  return image.addBands(image.normalizedDifference(['B5', 'B4']).rename("NDVI"));
+};
+
+// Map the function over the collection.
+var ndviCollection = filteredCollection.map(addNDVI);
+print(ndviCollection, 'NDVI Collection');
+
+// Plotting NDVI over time
+var maxNDVI = ndviCollection.max();
+Map.addLayer(maxNDVI, {bands: "NDVI", min:0, max:1}, "Max NDVI");
+
+// A chart of NDVI over time.
+print(ui.Chart.image.doySeries(ndviCollection.select('NDVI'), geometry, ee.Reducer.mean(), 30));
